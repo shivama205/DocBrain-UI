@@ -68,7 +68,7 @@ interface Document {
   title: string;
   file_type: string;
   size_bytes: number;
-  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  status: 'PENDING' | 'PROCESSING' | 'PROCESSED' | 'FAILED';
   error_message: string | null;
   knowledge_base_id: string;
   user_id: string;

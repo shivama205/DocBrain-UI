@@ -233,7 +233,7 @@ interface Document {
   title: string;
   file_type: string;
   size_bytes: number;
-  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  status: 'PENDING' | 'PROCESSING' | 'PROCESSED' | 'FAILED';
   error_message: string | null;
   knowledge_base_id: string;
   user_id: string;
@@ -487,8 +487,11 @@ export default function KnowledgeBasePage({ isNew = false }: KnowledgeBasePagePr
 
   const handleDeleteDocument = async (documentId: string) => {
     if (!id) return;
+    console.log(`Attempting to delete document ${documentId} from knowledge base ${id}`);
     try {
+      console.log('Making API call to delete document...');
       await documentApi.delete(id, documentId);
+      console.log('Document deleted successfully, updating UI');
       setDocuments(prev => prev.filter(doc => doc.id !== documentId));
       setShowDeleteConfirm(null);
     } catch (error) {
@@ -711,17 +714,34 @@ export default function KnowledgeBasePage({ isNew = false }: KnowledgeBasePagePr
                         >
                           <RefreshCw className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowDeleteConfirm(doc.id);
-                          }}
-                          className="p-1 rounded-lg transition-colors text-red-500 hover:text-red-600 hover:bg-red-50"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {showDeleteConfirm === doc.id ? (
+                          <div className="flex items-center gap-2 bg-white p-1 rounded-lg shadow-lg animate-fade-in">
+                            <button
+                              onClick={() => handleDeleteDocument(doc.id)}
+                              className="px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded-md"
+                            >
+                              Delete
+                            </button>
+                            <button
+                              onClick={() => setShowDeleteConfirm(null)}
+                              className="px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded-md"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowDeleteConfirm(doc.id);
+                            }}
+                            className="p-1 rounded-lg transition-colors text-red-500 hover:text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
-                    ) : doc.status !== 'PENDING' && doc.status !== 'PROCESSING' && (
+                    ) : (
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         {showDeleteConfirm === doc.id ? (
                           <div className="flex items-center gap-2 bg-white p-1 rounded-lg shadow-lg animate-fade-in">

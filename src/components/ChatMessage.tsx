@@ -74,7 +74,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
   };
 
   // Don't render incomplete assistant messages
-  if (message.type === 'assistant' && message.status !== 'completed') {
+  if (message.type === 'assistant' && message.status !== 'processed') {
     return (
       <motion.div
         initial="hidden"
@@ -223,7 +223,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
           <span className="text-xs text-gray-400">
             {formatTimestamp(message.created_at)}
           </span>
-          {message.status && message.status !== 'completed' && (
+          {message.status && message.status !== 'processed' && (
             <span className="text-xs text-blue-500">
               {message.status}
             </span>
