@@ -1,4 +1,5 @@
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
+import { UserRole } from '../contexts/UserContext';
 
 // Define API base URL
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -52,6 +53,14 @@ const TOKEN_STORAGE = {
 interface AuthResponse {
   access_token: string;
   token_type: string;
+}
+
+interface User {
+  id: string;
+  email: string;
+  role: UserRole;
+  created_at: string;
+  full_name: string;
 }
 
 interface KnowledgeBase {
@@ -254,6 +263,27 @@ export const knowledgeBaseApi = {
   
   delete: async (id: string): Promise<{ message: string }> => {
     const response = await api.delete(`/knowledge-bases/${id}`);
+    return response.data;
+  },
+  
+  // Knowledge Base Sharing API
+  share: async (id: string, userId: string): Promise<{ message: string }> => {
+    const response = await api.post(`/knowledge-bases/${id}/share`, { user_id: userId });
+    return response.data;
+  },
+  
+  unshare: async (id: string, userId: string): Promise<{ message: string }> => {
+    const response = await api.post(`/knowledge-bases/${id}/unshare`, { user_id: userId });
+    return response.data;
+  },
+  
+  getSharedUsers: async (id: string): Promise<User[]> => {
+    const response = await api.get(`/knowledge-bases/${id}/shared-users`);
+    return response.data;
+  },
+  
+  getSharedWithMe: async (): Promise<KnowledgeBase[]> => {
+    const response = await api.get('/knowledge-bases/shared-with-me');
     return response.data;
   },
 };

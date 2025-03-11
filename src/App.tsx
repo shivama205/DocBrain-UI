@@ -3,7 +3,10 @@ import LandingPage from './pages/LandingPage';
 import KnowledgeBasePage from './pages/KnowledgeBasePage';
 import LoginPage from './pages/LoginPage';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { UserProvider } from './contexts/UserContext';
+import PermissionGuard from './components/PermissionGuard';
 import './styles/globals.css';
+import UserManagementPage from './pages/UserManagementPage';
 
 function AppRoutes() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -28,36 +31,79 @@ function AppRoutes() {
           )
         } 
       />
+      
+      {/* Landing page with knowledge bases - all authenticated users */}
       <Route 
         path="/" 
         element={
           isAuthenticated ? (
-            <LandingPage />
+            <PermissionGuard permission="VIEW_KNOWLEDGE_BASES">
+              <LandingPage />
+            </PermissionGuard>
           ) : (
             <Navigate to="/login" replace />
           )
         } 
       />
+      
+      {/* Knowledge base details page - for conversation */}
       <Route 
         path="/kb/:id" 
         element={
           isAuthenticated ? (
-            <KnowledgeBasePage />
+            <PermissionGuard permission="CONVERSE_WITH_KNOWLEDGE_BASE">
+              <KnowledgeBasePage />
+            </PermissionGuard>
           ) : (
             <Navigate to="/login" replace />
           )
         } 
       />
+      
+      {/* Create new knowledge base - only owner and admin */}
       <Route 
         path="/kb/new" 
         element={
           isAuthenticated ? (
-            <KnowledgeBasePage isNew />
+            <PermissionGuard permission="CREATE_KNOWLEDGE_BASE" fallbackPath="/">
+              <KnowledgeBasePage isNew />
+            </PermissionGuard>
           ) : (
             <Navigate to="/login" replace />
           )
         } 
       />
+      
+      {/* Document management - only owner and admin */}
+      <Route 
+        path="/kb/:id/documents" 
+        element={
+          isAuthenticated ? (
+            <PermissionGuard permission="VIEW_DOCUMENTS" fallbackPath="/">
+              <KnowledgeBasePage documentsView />
+            </PermissionGuard>
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        } 
+      />
+      
+      {/* User management - admin only */}
+      <Route 
+        path="/users" 
+        element={
+          isAuthenticated ? (
+            <PermissionGuard permission="VIEW_USERS" fallbackPath="/">
+              <UserManagementPage />
+            </PermissionGuard>
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        } 
+      />
+      
+      {/* Fallback for unknown routes */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
@@ -65,9 +111,11 @@ function AppRoutes() {
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <AppRoutes />
-      </BrowserRouter>
+      <UserProvider>
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
+      </UserProvider>
     </AuthProvider>
   );
 }
