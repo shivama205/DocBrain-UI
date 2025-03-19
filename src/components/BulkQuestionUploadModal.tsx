@@ -4,6 +4,7 @@ import { Fragment } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { questionApi } from '../services/api';
 import { toast } from 'react-hot-toast';
+import { InformationCircleIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
 
 interface BulkQuestionUploadModalProps {
   isOpen: boolean;
@@ -11,6 +12,9 @@ interface BulkQuestionUploadModalProps {
   knowledgeBaseId: string;
   onUploadComplete: () => void;
 }
+
+// Required CSV columns based on the API documentation
+const REQUIRED_COLUMNS = ['question', 'answer', 'answer_type'];
 
 export default function BulkQuestionUploadModal({
   isOpen,
@@ -20,19 +24,111 @@ export default function BulkQuestionUploadModal({
 }: BulkQuestionUploadModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+  const [validatedColumns, setValidatedColumns] = useState<{ [key: string]: boolean }>({});
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const validateCsvColumns = (file: File): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setIsValidating(true);
+      setValidationError(null);
+      
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const content = e.target?.result as string;
+          if (!content) {
+            setValidationError('Could not read file content');
+            setIsValidating(false);
+            resolve(false);
+            return;
+          }
+          
+          // Parse the header row to get columns
+          const lines = content.split('\n');
+          if (lines.length === 0) {
+            setValidationError('File is empty');
+            setIsValidating(false);
+            resolve(false);
+            return;
+          }
+          
+          const headerRow = lines[0].trim();
+          const columns = headerRow.split(',').map(col => col.trim().toLowerCase());
+          
+          // Check if all required columns are present
+          const columnsStatus: { [key: string]: boolean } = {};
+          let missingColumns: string[] = [];
+          
+          REQUIRED_COLUMNS.forEach(requiredCol => {
+            const hasColumn = columns.includes(requiredCol.toLowerCase());
+            columnsStatus[requiredCol] = hasColumn;
+            if (!hasColumn) {
+              missingColumns.push(requiredCol);
+            }
+          });
+          
+          setValidatedColumns(columnsStatus);
+          
+          if (missingColumns.length > 0) {
+            setValidationError(`Missing required columns: ${missingColumns.join(', ')}`);
+            setIsValidating(false);
+            resolve(false);
+            return;
+          }
+          
+          setIsValidating(false);
+          resolve(true);
+        } catch (error) {
+          console.error('CSV validation error:', error);
+          setValidationError('Failed to validate CSV format');
+          setIsValidating(false);
+          resolve(false);
+        }
+      };
+      
+      reader.onerror = () => {
+        setValidationError('Failed to read file');
+        setIsValidating(false);
+        resolve(false);
+      };
+      
+      reader.readAsText(file);
+    });
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
-    if (selectedFile && selectedFile.type === 'text/csv') {
-      setFile(selectedFile);
-    } else {
-      toast.error('Please select a valid CSV file');
+    setValidationError(null);
+    setValidatedColumns({});
+    
+    if (!selectedFile) {
+      setFile(null);
+      return;
     }
+    
+    if (selectedFile.type !== 'text/csv' && !selectedFile.name.endsWith('.csv')) {
+      toast.error('Please select a valid CSV file');
+      setFile(null);
+      return;
+    }
+    
+    setFile(selectedFile);
+    
+    // Validate CSV columns when file is selected
+    await validateCsvColumns(selectedFile);
   };
 
   const handleUpload = async () => {
     if (!file) {
       toast.error('Please select a file to upload');
+      return;
+    }
+
+    // Validate columns before uploading
+    const isValid = await validateCsvColumns(file);
+    if (!isValid) {
+      toast.error('CSV validation failed. Please check the required columns.');
       return;
     }
 
@@ -103,11 +199,32 @@ export default function BulkQuestionUploadModal({
                     </div>
                   </div>
                 </div>
+                
+                {/* CSV format information */}
+                <div className="mt-4 bg-blue-50 rounded-lg p-4 border border-blue-100">
+                  <div className="flex">
+                    <div className="flex-shrink-0">
+                      <InformationCircleIcon className="h-5 w-5 text-blue-400" aria-hidden="true" />
+                    </div>
+                    <div className="ml-3">
+                      <h3 className="text-sm font-medium text-blue-800">Required CSV Format</h3>
+                      <div className="mt-2 text-sm text-blue-700">
+                        <p>Your CSV file must include the following columns:</p>
+                        <ul className="list-disc pl-5 mt-1 space-y-1">
+                          <li><code className="bg-blue-100 px-1 py-0.5 rounded">question</code>: The question text</li>
+                          <li><code className="bg-blue-100 px-1 py-0.5 rounded">answer</code>: The answer text</li>
+                          <li><code className="bg-blue-100 px-1 py-0.5 rounded">answer_type</code>: Must be either "DIRECT" or "SQL_QUERY"</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
                 <div className="mt-5 sm:mt-6">
                   <div className="flex items-center justify-center w-full">
                     <label
                       htmlFor="dropzone-file"
-                      className="flex flex-col items-center justify-center w-full h-56 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100"
+                      className="flex flex-col items-center justify-center w-full h-48 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100"
                     >
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <svg
@@ -129,9 +246,6 @@ export default function BulkQuestionUploadModal({
                           <span className="font-semibold">Click to upload</span> or drag and drop
                         </p>
                         <p className="text-xs text-gray-500">CSV file only</p>
-                        <p className="mt-1 text-xs text-gray-400">
-                          Format: question, answer, answer_type (DIRECT or SQL_QUERY)
-                        </p>
                       </div>
                       <input
                         id="dropzone-file"
@@ -142,20 +256,59 @@ export default function BulkQuestionUploadModal({
                       />
                     </label>
                   </div>
+                  
+                  {/* File selected and validation results */}
                   {file && (
                     <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
                       <p className="text-sm font-medium text-blue-800">
                         Selected file: {file.name}
                       </p>
+                      
+                      {isValidating && (
+                        <p className="mt-2 text-xs text-blue-600">
+                          Validating CSV format...
+                        </p>
+                      )}
+                      
+                      {Object.keys(validatedColumns).length > 0 && !isValidating && (
+                        <div className="mt-2">
+                          <p className="text-xs font-medium text-blue-800">Column validation:</p>
+                          <ul className="mt-1 space-y-1">
+                            {REQUIRED_COLUMNS.map(col => (
+                              <li key={col} className="flex items-center text-xs">
+                                {validatedColumns[col] ? (
+                                  <CheckCircleIcon className="h-4 w-4 text-green-500 mr-1" />
+                                ) : (
+                                  <XCircleIcon className="h-4 w-4 text-red-500 mr-1" />
+                                )}
+                                <span className={validatedColumns[col] ? "text-green-700" : "text-red-700"}>
+                                  {col}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Validation error message */}
+                  {validationError && (
+                    <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded-lg">
+                      <p className="text-sm font-medium text-red-800 flex items-start">
+                        <XCircleIcon className="h-5 w-5 text-red-400 mr-1.5 flex-shrink-0" />
+                        {validationError}
+                      </p>
                     </div>
                   )}
                 </div>
+                
                 <div className="mt-5 sm:mt-6 sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
                   <button
                     type="button"
                     className="inline-flex w-full justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed sm:col-start-2"
                     onClick={handleUpload}
-                    disabled={!file || isUploading}
+                    disabled={!file || isUploading || isValidating || !!validationError}
                   >
                     {isUploading ? 'Uploading...' : 'Upload'}
                   </button>

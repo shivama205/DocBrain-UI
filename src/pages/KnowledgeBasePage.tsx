@@ -12,6 +12,7 @@ import BulkQuestionUploadModal from '../components/BulkQuestionUploadModal';
 import { toast } from 'react-hot-toast';
 import { FixedSizeList as List } from 'react-window';
 import { memo } from 'react';
+import { ChatMessage } from '../components/ChatMessage';
 
 // Temporary inline component until the actual component is created
 function EmptySourcesState({ onUpload }: { onUpload: () => void }) {
@@ -114,183 +115,6 @@ function EmptyChatState({ onUpload }: { onUpload: () => void }) {
   );
 }
 
-// Temporary inline component until the actual component is created
-function ChatMessage({ message }: { message: Message }) {
-  const [copied, setCopied] = useState(false);
-  const [showSources, setShowSources] = useState(false);
-  const messageRef = useRef<HTMLDivElement>(null);
-
-  const formatTimestamp = (timestamp: string) => {
-    const date = new Date(timestamp);
-    return date.toLocaleString([], {
-      hour: 'numeric',
-      minute: '2-digit',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(message.content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  // Format message content with Markdown-like syntax
-  const formatContent = (content: string) => {
-    // Replace markdown-style headers
-    let formattedContent = content
-      // Format headers (# Header)
-      .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-      .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-      .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-      // Format bold (**text**)
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      // Format italic (*text*)
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      // Format bullet points
-      .replace(/^\s*[-*+]\s+(.*$)/gm, '<li>$1</li>')
-      // Format numbered lists
-      .replace(/^\s*(\d+)\.\s+(.*$)/gm, '<li>$2</li>')
-      // Format code blocks
-      .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-      // Format inline code
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      // Convert line breaks to <br>
-      .replace(/\n/g, '<br>');
-    
-    // Wrap bullet points in <ul>
-    if (formattedContent.includes('<li>')) {
-      formattedContent = formattedContent.replace(/<li>[\s\S]*?(?=<\/li>)<\/li>/g, match => {
-        return `<ul>${match}</ul>`;
-      });
-    }
-    
-    return formattedContent;
-  };
-
-  const isUserMessage = message.kind === 'USER';
-  
-  // Check if message is in a processing state
-  const isProcessing = message.kind === 'ASSISTANT' && message.status === 'PROCESSING';
-  const isFailed = message.status === 'FAILED';
-
-  return (
-    <div 
-      ref={messageRef}
-      className={`group flex gap-3 ${isUserMessage ? 'justify-end' : 'justify-start'} mb-6`}
-    >
-      {!isUserMessage && (
-        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center ring-2 ring-white">
-          <Sparkles className="w-4 h-4 text-white" />
-        </div>
-      )}
-
-      <div className={`flex flex-col gap-1 max-w-[85%] ${isUserMessage ? 'items-end' : 'items-start'}`}>
-        <div className={`
-          relative group/message px-4 py-2.5 rounded-2xl
-          ${isUserMessage 
-            ? 'bg-blue-600 text-white rounded-br-sm shadow-md shadow-blue-500/10' 
-            : 'bg-gray-100 text-gray-900 rounded-bl-sm shadow-md shadow-gray-200/20'
-          }
-        `}>
-          <div 
-            className={`prose prose-sm max-w-none ${isUserMessage ? 'prose-invert' : ''}`}
-            dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
-          />
-
-          <div className="absolute top-0 right-0 transform translate-x-2 -translate-y-2 opacity-0 group-hover/message:opacity-100 transition-opacity">
-            <button
-              onClick={handleCopy}
-              className={`
-                p-1.5 rounded-full transition-all duration-200
-                ${isUserMessage 
-                  ? 'bg-blue-700 hover:bg-blue-800 text-white' 
-                  : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-                }
-              `}
-            >
-              {copied ? (
-                <Check className="w-3.5 h-3.5" />
-              ) : (
-                <Copy className="w-3.5 h-3.5" />
-              )}
-            </button>
-          </div>
-
-          {message.sources && message.sources.length > 0 && (
-            <button
-              onClick={() => setShowSources(!showSources)}
-              className={`
-                absolute bottom-0 left-0 transform -translate-x-2 translate-y-2
-                flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-all duration-200
-                ${isUserMessage
-                  ? 'bg-blue-700 text-white/90 hover:bg-blue-800'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }
-              `}
-            >
-              <MessageSquare className="w-3 h-3" />
-              {message.sources.length} {message.sources.length === 1 ? 'source' : 'sources'}
-            </button>
-          )}
-        </div>
-
-        {message.sources && message.sources.length > 0 && showSources && (
-          <div className="w-full space-y-2 overflow-hidden">
-            {message.sources.map((source, index) => (
-              <div
-                key={index}
-                className={`
-                  p-3 rounded-lg border text-sm
-                  ${isUserMessage
-                    ? 'bg-blue-50 border-blue-100'
-                    : 'bg-white border-gray-200'
-                  }
-                `}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h4 className="font-medium text-gray-900">{source.title}</h4>
-                    <p className="mt-1 text-gray-600 line-clamp-2">{source.content}</p>
-                  </div>
-                  <span className="flex-shrink-0 px-2 py-1 text-xs font-medium bg-green-50 text-green-700 rounded-full">
-                    {Math.round(source.score * 100)}% match
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 px-1">
-          <span className="text-xs text-gray-400">
-            {formatTimestamp(message.created_at)}
-          </span>
-          {isProcessing && (
-            <span className="flex items-center text-xs text-blue-500">
-              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-              Processing...
-            </span>
-          )}
-          {isFailed && (
-            <span className="flex items-center text-xs text-red-500">
-              <AlertCircle className="w-3 h-3 mr-1" />
-              Failed
-            </span>
-          )}
-        </div>
-      </div>
-
-      {isUserMessage && (
-        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center ring-2 ring-white">
-          <User className="w-4 h-4 text-white" />
-        </div>
-      )}
-    </div>
-  );
-}
-
 interface Document {
   id: string;
   title: string;
@@ -329,10 +153,23 @@ interface Message {
   knowledge_base_id: string;
   sources: {
     score: number;
-    document_id: string;
-    title: string;
     content: string;
-    chunk_index: number;
+    
+    // Document source fields (optional)
+    document_id?: string;
+    title?: string;
+    chunk_index?: number;
+    
+    // Question source fields (optional)
+    question_id?: string;
+    question?: string;
+    answer?: string;
+    answer_type?: 'DIRECT' | 'SQL_QUERY';
+    routing?: {
+      service: string;
+      confidence: number;
+      reasoning: string;
+    };
   }[] | null;
   status: 'RECEIVED' | 'PROCESSING' | 'SENT' | 'FAILED';
   created_at: string;
@@ -362,8 +199,47 @@ const MemoizedChatMessage = memo(({ message }: { message: Message }) => {
 // Row renderer for virtualized list
 const Row = memo(({ index, style, data }: { index: number; style: React.CSSProperties; data: Message[] }) => {
   const message = data[index];
+  
+  // Calculate a more accurate and compact estimate of message height
+  const getEstimatedHeight = (message: Message) => {
+    const baseHeight = 100; // Increased base height for messages
+    const contentLength = message.content?.length || 0;
+    const sourcesCount = message.sources?.length || 0;
+    
+    // Add height for content (roughly 25px per 100 chars)
+    const contentHeight = Math.ceil(contentLength / 100) * 25;
+    
+    // Add height for sources (roughly 100px per source)
+    const sourcesHeight = sourcesCount * 100;
+    
+    return Math.max(baseHeight + contentHeight + sourcesHeight, 150);
+  };
+  
+  // Check if this message should be grouped with the previous one
+  const isGrouped = useMemo(() => {
+    if (index === 0) return false;
+    
+    const prevMessage = data[index - 1];
+    // Group messages from the same sender (kind) if they're close in time
+    return message.kind === prevMessage.kind && 
+           Math.abs(new Date(message.created_at).getTime() - 
+                    new Date(prevMessage.created_at).getTime()) < 60000; // Within 1 minute
+  }, [index, data, message]);
+  
+  // Add padding to allow space for expanding messages
+  const adjustedStyle = {
+    ...style,
+    height: getEstimatedHeight(message),
+    // Reduce padding for all messages, especially grouped ones
+    paddingTop: isGrouped ? '0.25rem' : '0.5rem',
+    paddingBottom: '0.5rem'
+  };
+  
+  // Use message status as part of the key to force re-render when status changes
+  const messageKey = `${message.id}-${message.status}`;
+  
   return (
-    <div style={style} className="py-2">
+    <div style={adjustedStyle} key={messageKey}>
       <MemoizedChatMessage message={message} />
     </div>
   );
@@ -403,6 +279,12 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   
   const { hasPermission } = useUser();
   
+  const [showDebugInfo, setShowDebugInfo] = useState(false);
+  
+  const [isRefreshingQuestions, setIsRefreshingQuestions] = useState(false);
+  const [lastQuestionsRefresh, setLastQuestionsRefresh] = useState<Date | null>(null);
+  const [showQuestionActions, setShowQuestionActions] = useState(false);
+  
   // Check if any document is in processing state
   const pendingDocuments = documents.filter(doc => doc.status === 'PENDING').length;
   const processingDocuments = documents.filter(doc => doc.status === 'PROCESSING').length;
@@ -425,9 +307,20 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
 
   // Memoize sorted messages to prevent unnecessary re-sorting
   const sortedMessages = useMemo(() => {
-    return [...messages].sort((a, b) => 
-      new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
-    );
+    return [...messages].sort((a, b) => {
+      // First sort by created_at timestamp
+      const timeA = new Date(a.created_at).getTime();
+      const timeB = new Date(b.created_at).getTime();
+      
+      // If timestamps are the same (or very close), sort by kind
+      // USER messages should come before ASSISTANT messages with the same timestamp
+      if (Math.abs(timeA - timeB) < 1000) {
+        if (a.kind === 'USER' && b.kind === 'ASSISTANT') return -1;
+        if (a.kind === 'ASSISTANT' && b.kind === 'USER') return 1;
+      }
+      
+      return timeA - timeB;
+    });
   }, [messages]);
 
   // Track user activity
@@ -466,44 +359,35 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
     try {
       const messagesData = await messageApi.list(conversationId);
       
+      // Force re-render when a message status changes from processing to processed
+      const hasStatusChange = messagesData.some(newMsg => {
+        const existingMsg = messages.find(m => m.id === newMsg.id);
+        return existingMsg && existingMsg.status !== newMsg.status;
+      });
+
       // Use functional update to avoid race conditions
       setMessages(prevMessages => {
+        // Always update if there's a status change
+        if (hasStatusChange) {
+          console.log("Message status change detected, updating messages");
+        }
+        
         // Compare message IDs to avoid unnecessary updates
         if (messagesData.length === prevMessages.length && 
+            !hasStatusChange &&
             JSON.stringify(messagesData.map(m => m.id).sort()) === 
             JSON.stringify(prevMessages.map(m => m.id).sort())) {
           return prevMessages;
         }
         
-        // Only update status for existing messages and add new ones
-        const updatedMessages = [...prevMessages];
-        const prevMessageMap = new Map(prevMessages.map(m => [m.id, m]));
-        
-        for (const message of messagesData) {
-          const existingMessage = prevMessageMap.get(message.id);
-          if (existingMessage) {
-            // Only update if status or content changed
-            if (existingMessage.status !== message.status || 
-                existingMessage.content !== message.content) {
-              const index = updatedMessages.findIndex(m => m.id === message.id);
-              if (index !== -1) {
-                updatedMessages[index] = message;
-              }
-            }
-          } else {
-            // Add new message
-            updatedMessages.push(message);
-          }
-        }
-        
-        // Sort messages
-        return updatedMessages.sort((a, b) => 
-          new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
-        );
+        // Create a new array with latest data, ensuring proper conversation order
+        return messagesData;
       });
       
+      // Check if any message is still processing (only count ASSISTANT messages)
       const waitingForResponse = messagesData.some(msg => 
-        msg.kind === 'ASSISTANT' && msg.status === 'PROCESSING'
+        msg.kind === 'ASSISTANT' && 
+        ['PROCESSING', 'RECEIVED'].includes(msg.status)
       );
       setIsWaitingForResponse(waitingForResponse);
       
@@ -515,7 +399,7 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
     } catch (error) {
       console.error('Failed to load messages:', error);
     }
-  }, [conversationId, isNearBottom]);
+  }, [conversationId, isNearBottom, messages]);
 
   // Restore the handleCreateNew function
   const handleCreateNew = useCallback(async () => {
@@ -608,16 +492,18 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
     const pollMessages = () => {
       loadMessages();
       
-      // Adjust polling frequency based on user activity and waiting state
-      const pollInterval = isWaitingForResponse 
-        ? 2000 
-        : isUserActive 
-          ? 5000 
-          : 15000;
+      // Use shorter polling interval when waiting for responses
+      const pollInterval = isWaitingForResponse ? 2000 : isUserActive ? 5000 : 15000;
+      
+      // Clear any existing timeout before setting a new one
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
       
       timeoutRef.current = setTimeout(pollMessages, pollInterval);
     };
     
+    // Start polling immediately
     pollMessages();
     
     return () => {
@@ -787,16 +673,20 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
     }, 2000);
   };
 
-  const handleCreateQuestion = async (question: string, answer: string, answerType: 'DIRECT' | 'SQL_QUERY') => {
+  const handleCreateQuestion = async (questionText: string, answer: string, answerType: 'DIRECT' | 'SQL_QUERY') => {
     if (!knowledgeBaseId) return;
     try {
-      const newQuestion = await questionApi.create(knowledgeBaseId, question, answer, answerType);
+      const newQuestion = await questionApi.create(knowledgeBaseId, questionText, answer, answerType);
       setQuestions(prev => [...prev, newQuestion]);
+      setLastQuestionsRefresh(new Date());
       setShowQuestionModal(false);
       
+      // Poll for status updates
       pollForQuestionStatus(newQuestion.id);
+      
     } catch (error) {
       console.error('Failed to create question:', error);
+      toast.error('Failed to create question');
     }
   };
 
@@ -859,16 +749,22 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
 
   const handleBulkUploadComplete = () => {
     fetchQuestions();
+    setLastQuestionsRefresh(new Date());
   };
 
   const fetchQuestions = async () => {
     if (!knowledgeBaseId) return;
     try {
+      setIsRefreshingQuestions(true);
       const response = await questionApi.list(knowledgeBaseId);
       setQuestions(response);
+      setLastQuestionsRefresh(new Date());
+      toast.success('Questions refreshed');
     } catch (error) {
       console.error('Error fetching questions:', error);
       toast.error('Failed to fetch questions');
+    } finally {
+      setIsRefreshingQuestions(false);
     }
   };
 
@@ -945,43 +841,87 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
               <LogOut className="w-5 h-5" />
               <span className="text-sm font-medium">Logout</span>
             </button>
+            
+            {/* Add debug button (only visible in development) */}
+            {process.env.NODE_ENV === 'development' && (
+              <button
+                onClick={() => setShowDebugInfo(!showDebugInfo)}
+                className={`p-2 rounded-xl transition-colors ${
+                  showDebugInfo ? 'bg-green-100 text-green-700' : 'text-gray-400'
+                }`}
+                title="Debug message flow"
+              >
+                <Code className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </div>
       </header>
 
-      <div className="flex max-w-[90rem] mx-auto">
+      {/* Show debug info panel when enabled */}
+      {showDebugInfo && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-md w-full bg-gray-800 text-white p-4 rounded-lg shadow-lg max-h-[50vh] overflow-auto">
+          <h3 className="text-sm font-medium mb-2">Message Debug Info</h3>
+          <div className="space-y-2 text-xs">
+            {sortedMessages.map((msg, i) => {
+              // Normalize status to lowercase for comparison
+              const status = msg.status.toLowerCase();
+              
+              return (
+                <div key={msg.id} className="flex gap-2 p-2 rounded bg-gray-700">
+                  <div className="font-mono">{i+1}.</div>
+                  <div className={`font-medium ${msg.kind === 'USER' ? 'text-blue-300' : 'text-green-300'}`}>
+                    {msg.kind}
+                  </div>
+                  <div className="truncate flex-1">{msg.content.slice(0, 30)}...</div>
+                  <div className={`
+                    px-1.5 rounded ${
+                      status.includes('process') && !status.includes('processing') ? 'bg-green-800 text-green-200' : 
+                      status.includes('received') ? 'bg-yellow-800 text-yellow-200' :
+                      status.includes('processing') ? 'bg-blue-800 text-blue-200' :
+                      status.includes('failed') ? 'bg-red-800 text-red-200' :
+                      status.includes('sent') ? 'bg-green-800 text-green-200' :
+                      'bg-gray-800 text-gray-200'
+                    }
+                  `}>
+                    {msg.status}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="flex h-[calc(100vh-4rem)]">
         <PermissionGated 
           permission="VIEW_DOCUMENTS"
           fallback={documentsView ? <Navigate to="/" replace /> : null}
         >
-          <div className="w-[400px] bg-white/70 backdrop-blur-lg border-r border-gray-200 flex flex-col h-[calc(100vh-4rem)] shadow-lg shadow-blue-500/5">
+          {/* Sidebar - now 1/3 width instead of 1/4 */}
+          <div className="w-1/3 border-r border-gray-200 bg-white/80 backdrop-blur-lg flex flex-col shadow-lg shadow-blue-500/5">
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
               <div className="flex gap-1">
-                <button
+                <button 
                   onClick={() => setActiveTab('documents')}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                    activeTab === 'documents' 
-                      ? 'bg-blue-100 text-blue-700' 
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
+                  className={`p-2 text-sm font-medium ${activeTab === 'documents' ? 'bg-blue-50 text-blue-600' : 'bg-white/0 text-gray-600 hover:bg-gray-50'} rounded-lg transition-colors`}
                 >
-                  Sources
+                  <FileText className="w-4 h-4" />
+                  <span className="ml-1">Documents</span>
                 </button>
-                <button
+                <button 
                   onClick={() => setActiveTab('questions')}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                    activeTab === 'questions' 
-                      ? 'bg-purple-100 text-purple-700' 
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
+                  className={`p-2 text-sm font-medium ${activeTab === 'questions' ? 'bg-blue-50 text-blue-600' : 'bg-white/0 text-gray-600 hover:bg-gray-50'} rounded-lg transition-colors`}
                 >
-                  Questions
+                  <HelpCircle className="w-4 h-4" />
+                  <span className="ml-1">Questions</span>
                 </button>
               </div>
             </div>
             
             {activeTab === 'documents' && (
               <div className="p-4 flex-1 overflow-y-auto">
+                {/* Documents tab content */}
                 {documents.length === 0 ? (
                   <EmptySourcesState onUpload={() => setShowUploadModal(true)} />
                 ) : (
@@ -998,6 +938,7 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
 
                     {documents.map(doc => (
                       <div key={doc.id} className="group relative flex items-center justify-between p-3 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 rounded-xl cursor-pointer transition-all duration-200">
+                        {/* Document item content */}
                         <div className="flex items-center gap-3 flex-grow">
                           <div className={`p-2 rounded-lg ${
                             doc.status === 'PENDING' ? 'bg-yellow-50' : 
@@ -1037,6 +978,7 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
                             )}
                           </div>
                         </div>
+                        {/* Document actions */}
                         {doc.status === 'FAILED' ? (
                           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
@@ -1112,29 +1054,68 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
             {activeTab === 'questions' && (
               <div className="p-4 flex-1 overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-base font-semibold text-gray-900">Questions</h2>
+                  <div>
+                    <h2 className="text-base font-semibold text-gray-900">Questions</h2>
+                    {lastQuestionsRefresh && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Last updated: {lastQuestionsRefresh.toLocaleTimeString()}
+                      </p>
+                    )}
+                  </div>
                   <div className="flex space-x-2">
+                    <button
+                      type="button"
+                      className="p-2 rounded-full text-gray-500 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                      onClick={fetchQuestions}
+                      disabled={isRefreshingQuestions}
+                      title="Refresh questions"
+                    >
+                      {isRefreshingQuestions ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4" />
+                      )}
+                    </button>
+                    
                     {hasPermission('CREATE_QUESTION') && (
-                      <>
+                      <div className="relative">
                         <button
                           type="button"
-                          className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md shadow-sm hover:bg-indigo-500"
-                          onClick={() => setShowQuestionModal(true)}
+                          className="p-2 rounded-full bg-indigo-600 text-white hover:bg-indigo-500 shadow-sm"
+                          onClick={() => setShowQuestionActions(!showQuestionActions)}
+                          title="Add question"
                         >
-                          Add Question
+                          <Plus className="w-4 h-4" />
                         </button>
-                        <button
-                          type="button"
-                          className="px-3 py-1.5 bg-white text-gray-700 text-sm font-medium rounded-md border border-gray-300 shadow-sm hover:bg-gray-50"
-                          onClick={() => setIsBulkUploadModalOpen(true)}
-                        >
-                          Bulk Upload
-                        </button>
-                      </>
+                        
+                        {showQuestionActions && (
+                          <div className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                            <button
+                              className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                              onClick={() => {
+                                setShowQuestionActions(false);
+                                setShowQuestionModal(true);
+                              }}
+                            >
+                              Add Single Question
+                            </button>
+                            <button
+                              className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                              onClick={() => {
+                                setShowQuestionActions(false);
+                                setIsBulkUploadModalOpen(true);
+                              }}
+                            >
+                              Bulk Upload Questions
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
                 
+                {/* Questions list */}
                 {questions.length === 0 ? (
                   <EmptyQuestionsState onAddQuestion={() => setShowQuestionModal(true)} />
                 ) : (
@@ -1242,17 +1223,14 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
           </div>
         </PermissionGated>
 
+        {/* Main content area - remaining 2/3 width instead of 3/4 */}
         <div className="flex-1 flex flex-col h-[calc(100vh-4rem)] bg-white/70 backdrop-blur-lg">
+          {/* Main chat content */}
           {knowledgeBaseId === undefined || documents.length === 0 ? (
             <EmptyChatState onUpload={() => setShowUploadModal(true)} />
           ) : (
             <>
-              <div 
-                ref={chatContainerRef}
-                onScroll={handleScroll}
-                className="flex-1 p-6 overflow-y-auto scroll-smooth relative" 
-                id="chat-messages"
-              >
+              <div className="flex-1 p-6 overflow-y-auto scroll-smooth relative" id="chat-messages" ref={chatContainerRef} onScroll={handleScroll}>
                 <div className="max-w-3xl mx-auto space-y-4">
                   {sortedMessages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center py-12">
@@ -1267,19 +1245,14 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
                       </p>
                     </div>
                   ) : (
-                    <div style={{ height: chatContainerRef.current ? chatContainerRef.current.clientHeight - 100 : 500 }}>
-                      <List
-                        height={chatContainerRef.current ? chatContainerRef.current.clientHeight - 100 : 500}
-                        itemCount={sortedMessages.length}
-                        itemSize={150} // Average height, will adjust dynamically
-                        width="100%"
-                        itemData={sortedMessages}
-                        overscanCount={5}
-                        className="scrollbar-hide"
-                      >
-                        {Row}
-                      </List>
-                    </div>
+                    <>
+                      {/* Show all messages directly instead of using virtualization */}
+                      {sortedMessages.map((message) => (
+                        <div key={`${message.id}-${message.status}`} className="mb-4">
+                          <ChatMessage message={message} />
+                        </div>
+                      ))}
+                    </>
                   )}
                 </div>
                 
@@ -1362,34 +1335,42 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
             </>
           )}
         </div>
-
-        <PermissionGated permission="UPLOAD_DOCUMENT">
-          <FileUploadModal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} onUpload={handleUploadDocument} />
-        </PermissionGated>
-        
-        <PermissionGated permission="CREATE_QUESTION">
-          <CreateQuestionModal isOpen={showQuestionModal} onClose={() => setShowQuestionModal(false)} onCreate={handleCreateQuestion} />
-        </PermissionGated>
-        
-        <PermissionGated permission="SHARE_KNOWLEDGE_BASE">
-          {knowledgeBaseId && knowledgeBaseId.trim() !== '' && (
-            <ShareKnowledgeBaseModal 
-              isOpen={showShareModal} 
-              onClose={() => setShowShareModal(false)} 
-              knowledgeBaseId={knowledgeBaseId} 
-            />
-          )}
-        </PermissionGated>
-
-        {knowledgeBaseId && (
-          <BulkQuestionUploadModal
-            isOpen={isBulkUploadModalOpen}
-            onClose={() => setIsBulkUploadModalOpen(false)}
-            knowledgeBaseId={knowledgeBaseId}
-            onUploadComplete={handleBulkUploadComplete}
-          />
-        )}
       </div>
+      
+      {/* Modals */}
+      {showUploadModal && (
+        <FileUploadModal
+          isOpen={showUploadModal}
+          onClose={() => setShowUploadModal(false)}
+          onUpload={handleUploadDocument}
+        />
+      )}
+      
+      {/* Other modals */}
+      {showQuestionModal && (
+        <CreateQuestionModal
+          isOpen={showQuestionModal}
+          onClose={() => setShowQuestionModal(false)}
+          onCreate={handleCreateQuestion}
+        />
+      )}
+      
+      {showShareModal && (
+        <ShareKnowledgeBaseModal
+          isOpen={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          knowledgeBaseId={knowledgeBaseId}
+        />
+      )}
+
+      {isBulkUploadModalOpen && knowledgeBaseId && (
+        <BulkQuestionUploadModal
+          isOpen={isBulkUploadModalOpen}
+          onClose={() => setIsBulkUploadModalOpen(false)}
+          knowledgeBaseId={knowledgeBaseId!}
+          onUploadComplete={handleBulkUploadComplete}
+        />
+      )}
     </div>
   );
 } 

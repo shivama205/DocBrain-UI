@@ -27,8 +27,8 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [refreshTimeout, setRefreshTimeout] = useState<NodeJS.Timeout | null>(null);
-  const scheduleTokenRefreshRef = useRef<(() => void) | null>(null);
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const scheduleTokenRefreshRef = useRef<((forceRefresh?: boolean) => void) | null>(null);
 
   const checkAuth = useCallback(async (): Promise<boolean> => {
     try {
@@ -78,38 +78,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
       authApi.logout();
       return false;
     }
-  }, [setIsAuthenticated]);
+  }, []);
 
-  const refreshAuth = useCallback(async () => {
-    const refreshToken = localStorage.getItem('refresh_token');
-    if (!refreshToken) {
-      setIsAuthenticated(false);
-      if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
-      }
-      return;
-    }
-
-    try {
-      await authApi.refresh(refreshToken);
-      setIsAuthenticated(true);
-      if (scheduleTokenRefreshRef.current) {
-        scheduleTokenRefreshRef.current();
-      }
-    } catch (error) {
-      console.error('Auth refresh failed:', error);
-      setIsAuthenticated(false);
-      authApi.logout();
-      if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
-      }
-    }
-  }, [setIsAuthenticated]);
-
-  const scheduleTokenRefresh = useCallback(() => {
+  // Define scheduleTokenRefresh function first
+  const scheduleTokenRefresh = useCallback((forceRefresh = false) => {
     // Clear any existing refresh timeout
-    if (refreshTimeout) {
-      clearTimeout(refreshTimeout);
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+      refreshTimeoutRef.current = null;
     }
 
     // Schedule refresh 5 minutes before token expires
@@ -120,26 +96,54 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const now = new Date().getTime();
         const refreshIn = Math.max(0, expiryTime - now - 5 * 60 * 1000); // 5 minutes before expiry
         
-        const timeout = setTimeout(() => {
-          refreshAuth();
-        }, refreshIn);
+        console.log(`Scheduling token refresh in ${Math.floor(refreshIn / 1000 / 60)} minutes`);
         
-        setRefreshTimeout(timeout);
+        refreshTimeoutRef.current = setTimeout(async () => {
+          const refreshToken = localStorage.getItem('refresh_token');
+          if (!refreshToken) {
+            setIsAuthenticated(false);
+            if (!window.location.pathname.includes('/login')) {
+              window.location.href = '/login';
+            }
+            return;
+          }
+
+          try {
+            await authApi.refresh(refreshToken);
+            setIsAuthenticated(true);
+            // Schedule the next refresh
+            scheduleTokenRefresh();
+          } catch (error) {
+            console.error('Auth refresh failed:', error);
+            setIsAuthenticated(false);
+            authApi.logout();
+            if (!window.location.pathname.includes('/login')) {
+              window.location.href = '/login';
+            }
+          }
+        }, forceRefresh ? 0 : refreshIn);
       }
     }
-  }, [refreshTimeout, setRefreshTimeout, refreshAuth]);
+  }, []);
 
-  // Store the scheduleTokenRefresh function in a ref to avoid circular dependencies
+  // Store in ref to avoid dependency issues
   useEffect(() => {
     scheduleTokenRefreshRef.current = scheduleTokenRefresh;
   }, [scheduleTokenRefresh]);
+
+  // Simplified refreshAuth that uses the ref
+  const refreshAuth = useCallback(async () => {
+    if (scheduleTokenRefreshRef.current) {
+      scheduleTokenRefreshRef.current(true); // Force immediate refresh
+    }
+  }, []);
 
   useEffect(() => {
     const initAuth = async () => {
       try {
         const isAuthed = await checkAuth();
-        if (isAuthed) {
-          scheduleTokenRefresh();
+        if (isAuthed && scheduleTokenRefreshRef.current) {
+          scheduleTokenRefreshRef.current();
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
@@ -165,19 +169,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      if (refreshTimeout) {
-        clearTimeout(refreshTimeout);
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
       }
       window.removeEventListener('storage', handleStorageChange);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [checkAuth, refreshTimeout, scheduleTokenRefresh]);
+  }, [checkAuth]); // Remove scheduleTokenRefresh from dependencies
 
   const login = async (email: string, password: string) => {
     try {
       await authApi.login(email, password);
       await checkAuth(); // Verify auth state after login
-      scheduleTokenRefresh();
+      if (scheduleTokenRefreshRef.current) {
+        scheduleTokenRefreshRef.current();
+      }
     } catch (error) {
       setIsAuthenticated(false);
       throw error;
@@ -185,8 +191,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const logout = () => {
-    if (refreshTimeout) {
-      clearTimeout(refreshTimeout);
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+      refreshTimeoutRef.current = null;
     }
     authApi.logout();
     setIsAuthenticated(false);
