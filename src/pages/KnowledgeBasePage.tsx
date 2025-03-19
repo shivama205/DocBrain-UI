@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Navigate } from 'react-router-dom';
-import { Plus, FileText, Send, ArrowLeft, Sparkles, Pencil, User, Trash2, MessageSquare, LogOut, Loader2, RefreshCw, Check, Copy, ChevronDown, Clock, AlertCircle, CheckCircle, Share2 } from 'lucide-react';
-import { knowledgeBaseApi, documentApi, conversationApi, messageApi } from '../services/api';
+import { Plus, FileText, Send, ArrowLeft, Sparkles, Pencil, User, Trash2, MessageSquare, LogOut, Loader2, RefreshCw, Check, Copy, ChevronDown, Clock, AlertCircle, CheckCircle, Share2, HelpCircle, Code } from 'lucide-react';
+import { knowledgeBaseApi, documentApi, conversationApi, messageApi, questionApi } from '../services/api';
 import { FileUploadModal } from '../components/FileUploadModal';
 import { ShareKnowledgeBaseModal } from '../components/ShareKnowledgeBaseModal';
+import { CreateQuestionModal } from '../components/CreateQuestionModal';
 import { useAuth } from '../contexts/AuthContext';
 import PermissionGated from '../components/PermissionGated';
 import { useUser } from '../contexts/UserContext';
@@ -36,6 +37,39 @@ function EmptySourcesState({ onUpload }: { onUpload: () => void }) {
       ) : (
         <p className="text-gray-600 mb-8 max-w-md text-lg leading-relaxed">
           No documents have been added to this knowledge base yet. Please contact an administrator to add content.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function EmptyQuestionsState({ onAddQuestion }: { onAddQuestion: () => void }) {
+  const { hasPermission } = useUser();
+  
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center p-8">
+      <div className="w-16 h-16 mb-8 bg-gradient-to-br from-purple-500 to-pink-500 p-4 rounded-2xl shadow-lg shadow-purple-500/20">
+        <HelpCircle className="w-full h-full text-white" />
+      </div>
+      <h3 className="text-2xl font-bold mb-3 bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-transparent bg-clip-text">
+        {hasPermission("CREATE_QUESTION") ? "Add your first question" : "No questions available"}
+      </h3>
+      
+      {hasPermission("CREATE_QUESTION") ? (
+        <>
+          <p className="text-gray-600 mb-8 max-w-md text-lg leading-relaxed">
+            Create pre-defined questions for your knowledge base.
+          </p>
+          <button 
+            onClick={onAddQuestion}
+            className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl shadow-lg shadow-purple-500/20 hover:shadow-xl hover:shadow-purple-500/30 transition-all duration-200 hover:scale-[1.02] font-medium"
+          >
+            Add question
+          </button>
+        </>
+      ) : (
+        <p className="text-gray-600 mb-8 max-w-md text-lg leading-relaxed">
+          No questions have been added to this knowledge base yet. Please contact an administrator to add questions.
         </p>
       )}
     </div>
@@ -268,6 +302,19 @@ interface Document {
   updated_at: string;
 }
 
+interface Question {
+  id: string;
+  question: string;
+  answer: string;
+  answer_type: 'DIRECT' | 'SQL_QUERY';
+  status: 'PENDING' | 'PROCESSING' | 'PROCESSED' | 'FAILED';
+  error_message: string | null;
+  knowledge_base_id: string;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
 interface Message {
   id: string;
   content: string;
@@ -317,9 +364,13 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   const [title, setTitle] = useState('New Knowledge Base');
   const [isEditing, setIsEditing] = useState(false);
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [activeTab, setActiveTab] = useState<'documents' | 'questions' | 'chat'>('documents');
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showQuestionModal, setShowQuestionModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [showDeleteQuestionConfirm, setShowDeleteQuestionConfirm] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -330,11 +381,14 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   // Check if any document is in processing state
   const pendingDocuments = documents.filter(doc => doc.status === 'PENDING').length;
   const processingDocuments = documents.filter(doc => doc.status === 'PROCESSING').length;
-  // These variables are used in the UI conditionally
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const failedDocuments = documents.filter(doc => doc.status === 'FAILED').length;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const hasProcessingDocuments = processingDocuments > 0 || pendingDocuments > 0;
+
+  // Check if any question is in processing state
+  const pendingQuestions = questions.filter(q => q.status === 'PENDING').length;
+  const processingQuestions = questions.filter(q => q.status === 'PROCESSING').length;
+  const failedQuestions = questions.filter(q => q.status === 'FAILED').length;
+  const hasProcessingQuestions = processingQuestions > 0 || pendingQuestions > 0;
 
   const isNearBottom = useCallback(() => {
     const chatContainer = chatContainerRef.current;
@@ -411,15 +465,26 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
       console.error('Failed to load documents:', error);
     }
   }, [id, setDocuments]);
+
+  const loadQuestions = useCallback(async () => {
+    if (!id) return;
+    try {
+      const questionsList = await questionApi.list(id);
+      setQuestions(questionsList);
+    } catch (error) {
+      console.error('Failed to load questions:', error);
+    }
+  }, [id]);
   
   useEffect(() => {
     if (!isNew) {
       loadKnowledgeBase();
       loadDocuments();
+      loadQuestions();
     } else if (isNew) {
       handleCreateNew();
     }
-  }, [id, isNew, loadKnowledgeBase, loadDocuments, handleCreateNew]);
+  }, [id, isNew, loadKnowledgeBase, loadDocuments, loadQuestions, handleCreateNew]);
 
   useEffect(() => {
     if (conversationId) {
@@ -591,6 +656,59 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
     }, 2000);
   };
 
+  const handleCreateQuestion = async (question: string, answer: string, answerType: 'DIRECT' | 'SQL_QUERY') => {
+    if (!id) return;
+    try {
+      const newQuestion = await questionApi.create(id, question, answer, answerType);
+      setQuestions(prev => [...prev, newQuestion]);
+      setShowQuestionModal(false);
+      
+      pollForQuestionStatus(newQuestion.id);
+    } catch (error) {
+      console.error('Failed to create question:', error);
+    }
+  };
+
+  const handleDeleteQuestion = async (questionId: string) => {
+    if (!id) return;
+    try {
+      await questionApi.delete(id, questionId);
+      setQuestions(prev => prev.filter(q => q.id !== questionId));
+      setShowDeleteQuestionConfirm(null);
+    } catch (error) {
+      console.error('Failed to delete question:', error);
+    }
+  };
+
+  const handleRetryQuestion = async (questionId: string) => {
+    if (!id) return;
+    try {
+      const retryQuestion = await questionApi.retry(id, questionId);
+      setQuestions(prev => prev.map(q => q.id === questionId ? retryQuestion : q));
+      
+      pollForQuestionStatus(questionId);
+    } catch (error) {
+      console.error('Failed to retry question processing:', error);
+    }
+  };
+
+  const pollForQuestionStatus = async (questionId: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        if (!id) return;
+        const question = await questionApi.get(id, questionId);
+        setQuestions(prev => prev.map(q => q.id === questionId ? question : q));
+        
+        if (question.status !== 'PENDING' && question.status !== 'PROCESSING') {
+          clearInterval(pollInterval);
+        }
+      } catch (error) {
+        console.error('Failed to poll question status:', error);
+        clearInterval(pollInterval);
+      }
+    }, 2000);
+  };
+
   const handleDeleteConversation = async () => {
     if (!conversationId) return;
     
@@ -692,134 +810,301 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
         >
           <div className="w-[400px] bg-white/70 backdrop-blur-lg border-r border-gray-200 flex flex-col h-[calc(100vh-4rem)] shadow-lg shadow-blue-500/5">
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
-              <h2 className="font-bold text-gray-900">Sources</h2>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setActiveTab('documents')}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                    activeTab === 'documents' 
+                      ? 'bg-blue-100 text-blue-700' 
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  Sources
+                </button>
+                <button
+                  onClick={() => setActiveTab('questions')}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                    activeTab === 'questions' 
+                      ? 'bg-purple-100 text-purple-700' 
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  Questions
+                </button>
+                <button
+                  onClick={() => setActiveTab('chat')}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                    activeTab === 'chat' 
+                      ? 'bg-indigo-100 text-indigo-700' 
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  Chat
+                </button>
+              </div>
             </div>
-            <div className="p-4 flex-1 overflow-y-auto">
-              {documents.length === 0 ? (
-                <EmptySourcesState onUpload={() => setShowUploadModal(true)} />
-              ) : (
-                <>
-                  <PermissionGated permission="UPLOAD_DOCUMENT">
-                    <button 
-                      onClick={() => setShowUploadModal(true)}
-                      className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-dashed border-blue-200 text-blue-600 p-4 rounded-xl hover:shadow-lg hover:shadow-blue-500/10 transition-all duration-200 mb-4 font-medium"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add source
-                    </button>
-                  </PermissionGated>
+            
+            {activeTab === 'documents' && (
+              <div className="p-4 flex-1 overflow-y-auto">
+                {documents.length === 0 ? (
+                  <EmptySourcesState onUpload={() => setShowUploadModal(true)} />
+                ) : (
+                  <>
+                    <PermissionGated permission="UPLOAD_DOCUMENT">
+                      <button 
+                        onClick={() => setShowUploadModal(true)}
+                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-dashed border-blue-200 text-blue-600 p-4 rounded-xl hover:shadow-lg hover:shadow-blue-500/10 transition-all duration-200 mb-4 font-medium"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add source
+                      </button>
+                    </PermissionGated>
 
-                  {documents.map(doc => (
-                    <div key={doc.id} className="group relative flex items-center justify-between p-3 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 rounded-xl cursor-pointer transition-all duration-200">
-                      <div className="flex items-center gap-3 flex-grow">
-                        <div className={`p-2 rounded-lg ${
-                          doc.status === 'PENDING' ? 'bg-yellow-50' : 
-                          doc.status === 'PROCESSING' ? 'bg-blue-50' : 
-                          doc.status === 'FAILED' ? 'bg-red-50' : 
-                          'bg-green-50'
-                        }`}>
-                          {doc.status === 'PENDING' ? (
-                            <Clock className="w-5 h-5 text-yellow-500" />
-                          ) : doc.status === 'PROCESSING' ? (
-                            <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
-                          ) : doc.status === 'FAILED' ? (
-                            <AlertCircle className="w-5 h-5 text-red-500" />
-                          ) : (
-                            <CheckCircle className="w-5 h-5 text-green-500" />
-                          )}
+                    {documents.map(doc => (
+                      <div key={doc.id} className="group relative flex items-center justify-between p-3 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 rounded-xl cursor-pointer transition-all duration-200">
+                        <div className="flex items-center gap-3 flex-grow">
+                          <div className={`p-2 rounded-lg ${
+                            doc.status === 'PENDING' ? 'bg-yellow-50' : 
+                            doc.status === 'PROCESSING' ? 'bg-blue-50' : 
+                            doc.status === 'FAILED' ? 'bg-red-50' : 
+                            'bg-green-50'
+                          }`}>
+                            {doc.status === 'PENDING' ? (
+                              <Clock className="w-5 h-5 text-yellow-500" />
+                            ) : doc.status === 'PROCESSING' ? (
+                              <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                            ) : doc.status === 'FAILED' ? (
+                              <AlertCircle className="w-5 h-5 text-red-500" />
+                            ) : (
+                              <CheckCircle className="w-5 h-5 text-green-500" />
+                            )}
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-700">{doc.title}</span>
+                            {doc.status === 'PENDING' && (
+                              <span className="text-xs text-yellow-600 flex items-center">
+                                <Clock className="w-3 h-3 mr-1" />
+                                Pending...
+                              </span>
+                            )}
+                            {doc.status === 'PROCESSING' && (
+                              <span className="text-xs text-blue-600 flex items-center">
+                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                Processing...
+                              </span>
+                            )}
+                            {doc.status === 'FAILED' && (
+                              <span className="text-xs text-red-600 flex items-center">
+                                <AlertCircle className="w-3 h-3 mr-1" />
+                                {doc.error_message || 'Processing failed'}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex flex-col">
-                          <span className="text-sm font-medium text-gray-700">{doc.title}</span>
-                          {doc.status === 'PENDING' && (
-                            <span className="text-xs text-yellow-600 flex items-center">
-                              <Clock className="w-3 h-3 mr-1" />
-                              Pending...
-                            </span>
-                          )}
-                          {doc.status === 'PROCESSING' && (
-                            <span className="text-xs text-blue-600 flex items-center">
-                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                              Processing...
-                            </span>
-                          )}
-                          {doc.status === 'FAILED' && (
-                            <span className="text-xs text-red-600 flex items-center">
-                              <AlertCircle className="w-3 h-3 mr-1" />
-                              {doc.error_message || 'Processing failed'}
-                            </span>
-                          )}
-                        </div>
+                        {doc.status === 'FAILED' ? (
+                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => handleRetryDocument(doc.id)}
+                              className="p-1 rounded-lg transition-colors text-blue-500 hover:text-blue-600 hover:bg-blue-50"
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                            </button>
+                            {showDeleteConfirm === doc.id ? (
+                              <div className="flex items-center gap-2 bg-white p-1 rounded-lg shadow-lg animate-fade-in">
+                                <button
+                                  onClick={() => handleDeleteDocument(doc.id)}
+                                  className="px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded-md"
+                                >
+                                  Delete
+                                </button>
+                                <button
+                                  onClick={() => setShowDeleteConfirm(null)}
+                                  className="px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded-md"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowDeleteConfirm(doc.id);
+                                }}
+                                className="p-1 rounded-lg transition-colors text-red-500 hover:text-red-600 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {showDeleteConfirm === doc.id ? (
+                              <div className="flex items-center gap-2 bg-white p-1 rounded-lg shadow-lg animate-fade-in">
+                                <button
+                                  onClick={() => handleDeleteDocument(doc.id)}
+                                  className="px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded-md"
+                                >
+                                  Delete
+                                </button>
+                                <button
+                                  onClick={() => setShowDeleteConfirm(null)}
+                                  className="px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded-md"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowDeleteConfirm(doc.id);
+                                }}
+                                className="p-1 rounded-lg transition-colors text-red-500 hover:text-red-600 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      {doc.status === 'FAILED' ? (
-                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => handleRetryDocument(doc.id)}
-                            className="p-1 rounded-lg transition-colors text-blue-500 hover:text-blue-600 hover:bg-blue-50"
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </button>
-                          {showDeleteConfirm === doc.id ? (
-                            <div className="flex items-center gap-2 bg-white p-1 rounded-lg shadow-lg animate-fade-in">
-                              <button
-                                onClick={() => handleDeleteDocument(doc.id)}
-                                className="px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded-md"
-                              >
-                                Delete
-                              </button>
-                              <button
-                                onClick={() => setShowDeleteConfirm(null)}
-                                className="px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded-md"
-                              >
-                                Cancel
-                              </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'questions' && (
+              <div className="p-4 flex-1 overflow-y-auto">
+                {questions.length === 0 ? (
+                  <EmptyQuestionsState onAddQuestion={() => setShowQuestionModal(true)} />
+                ) : (
+                  <>
+                    <PermissionGated permission="CREATE_QUESTION">
+                      <button 
+                        onClick={() => setShowQuestionModal(true)}
+                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-dashed border-purple-200 text-purple-600 p-4 rounded-xl hover:shadow-lg hover:shadow-purple-500/10 transition-all duration-200 mb-4 font-medium"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add question
+                      </button>
+                    </PermissionGated>
+
+                    {questions.map(question => (
+                      <div key={question.id} className="group relative flex flex-col p-4 mb-3 hover:bg-gradient-to-r hover:from-purple-50 hover:to-pink-50 rounded-xl cursor-pointer transition-all duration-200 border border-gray-100">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <div className={`p-1.5 rounded-lg ${
+                              question.status === 'PENDING' ? 'bg-yellow-50' : 
+                              question.status === 'PROCESSING' ? 'bg-blue-50' : 
+                              question.status === 'FAILED' ? 'bg-red-50' : 
+                              'bg-green-50'
+                            }`}>
+                              {question.status === 'PENDING' ? (
+                                <Clock className="w-4 h-4 text-yellow-500" />
+                              ) : question.status === 'PROCESSING' ? (
+                                <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+                              ) : question.status === 'FAILED' ? (
+                                <AlertCircle className="w-4 h-4 text-red-500" />
+                              ) : (
+                                <CheckCircle className="w-4 h-4 text-green-500" />
+                              )}
                             </div>
-                          ) : (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowDeleteConfirm(doc.id);
-                              }}
-                              className="p-1 rounded-lg transition-colors text-red-500 hover:text-red-600 hover:bg-red-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {showDeleteConfirm === doc.id ? (
-                            <div className="flex items-center gap-2 bg-white p-1 rounded-lg shadow-lg animate-fade-in">
-                              <button
-                                onClick={() => handleDeleteDocument(doc.id)}
-                                className="px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded-md"
-                              >
-                                Delete
-                              </button>
-                              <button
-                                onClick={() => setShowDeleteConfirm(null)}
-                                className="px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded-md"
-                              >
-                                Cancel
-                              </button>
+                            <h3 className="font-medium text-sm text-gray-800">{question.question}</h3>
+                          </div>
+                          <PermissionGated permission="DELETE_QUESTION">
+                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {question.status === 'FAILED' && (
+                                <button
+                                  onClick={() => handleRetryQuestion(question.id)}
+                                  className="p-1 rounded-lg transition-colors text-blue-500 hover:text-blue-600 hover:bg-blue-50"
+                                >
+                                  <RefreshCw className="w-4 h-4" />
+                                </button>
+                              )}
+                              {showDeleteQuestionConfirm === question.id ? (
+                                <div className="flex items-center gap-2 bg-white p-1 rounded-lg shadow-lg animate-fade-in">
+                                  <button
+                                    onClick={() => handleDeleteQuestion(question.id)}
+                                    className="px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded-md"
+                                  >
+                                    Delete
+                                  </button>
+                                  <button
+                                    onClick={() => setShowDeleteQuestionConfirm(null)}
+                                    className="px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 rounded-md"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowDeleteQuestionConfirm(question.id);
+                                  }}
+                                  className="p-1 rounded-lg transition-colors text-red-500 hover:text-red-600 hover:bg-red-50"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
-                          ) : (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowDeleteConfirm(doc.id);
-                              }}
-                              className="p-1 rounded-lg transition-colors text-red-500 hover:text-red-600 hover:bg-red-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
+                          </PermissionGated>
                         </div>
-                      )}
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
+                        <div className="px-6 py-2 bg-white rounded-lg border border-gray-100 shadow-sm">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-medium text-gray-500">Answer:</span>
+                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-700 flex items-center">
+                              {question.answer_type === 'DIRECT' ? (
+                                <><HelpCircle className="w-3 h-3 mr-1 text-blue-500" /> Direct</>
+                              ) : (
+                                <><Code className="w-3 h-3 mr-1 text-purple-500" /> SQL Query</>
+                              )}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-700 truncate">
+                            {question.answer}
+                          </p>
+                        </div>
+                        {question.status === 'PENDING' && (
+                          <div className="mt-1 text-xs text-yellow-600 flex items-center">
+                            <Clock className="w-3 h-3 mr-1" />
+                            Waiting for processing...
+                          </div>
+                        )}
+                        {question.status === 'PROCESSING' && (
+                          <div className="mt-1 text-xs text-blue-600 flex items-center">
+                            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                            Processing question...
+                          </div>
+                        )}
+                        {question.status === 'FAILED' && (
+                          <div className="mt-1 text-xs text-red-600 flex items-center">
+                            <AlertCircle className="w-3 h-3 mr-1" />
+                            {question.error_message || 'Failed to process question'}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'chat' && (
+              <div className="p-4 flex-1 overflow-y-auto">
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  <div className="w-16 h-16 mb-6 bg-gradient-to-br from-indigo-500 to-blue-500 p-4 rounded-2xl shadow-lg shadow-indigo-500/20">
+                    <MessageSquare className="w-full h-full text-white" />
+                  </div>
+                  <h3 className="text-xl font-bold mb-2 bg-gradient-to-r from-indigo-600 via-blue-600 to-purple-600 text-transparent bg-clip-text">
+                    Chat on mobile
+                  </h3>
+                  <p className="text-gray-500 max-w-sm">
+                    Use the main chat interface on the right side to interact with your knowledge base.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </PermissionGated>
 
@@ -936,6 +1221,10 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
 
         <PermissionGated permission="UPLOAD_DOCUMENT">
           <FileUploadModal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} onUpload={handleUploadDocument} />
+        </PermissionGated>
+        
+        <PermissionGated permission="CREATE_QUESTION">
+          <CreateQuestionModal isOpen={showQuestionModal} onClose={() => setShowQuestionModal(false)} onCreate={handleCreateQuestion} />
         </PermissionGated>
         
         <PermissionGated permission="SHARE_KNOWLEDGE_BASE">

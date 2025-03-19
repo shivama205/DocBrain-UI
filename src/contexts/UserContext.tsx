@@ -29,6 +29,12 @@ export const PERMISSIONS = {
   UPLOAD_DOCUMENT: [UserRole.OWNER, UserRole.ADMIN],
   DELETE_DOCUMENT: [UserRole.OWNER, UserRole.ADMIN],
   
+  // Question Permissions
+  VIEW_QUESTIONS: [UserRole.USER, UserRole.OWNER, UserRole.ADMIN],
+  CREATE_QUESTION: [UserRole.OWNER, UserRole.ADMIN],
+  UPDATE_QUESTION: [UserRole.OWNER, UserRole.ADMIN],
+  DELETE_QUESTION: [UserRole.OWNER, UserRole.ADMIN],
+  
   // Conversation Permissions
   CONVERSE_WITH_KNOWLEDGE_BASE: [UserRole.USER, UserRole.OWNER, UserRole.ADMIN],
   

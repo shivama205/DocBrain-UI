@@ -87,6 +87,19 @@ interface Document {
   updated_at: string;
 }
 
+interface Question {
+  id: string;
+  question: string;
+  answer: string;
+  answer_type: 'DIRECT' | 'SQL_QUERY';
+  status: 'PENDING' | 'PROCESSING' | 'PROCESSED' | 'FAILED';
+  error_message: string | null;
+  knowledge_base_id: string;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
 interface Conversation {
   id: string;
   title: string;
@@ -325,6 +338,47 @@ export const documentApi = {
   
   retry: async (knowledgeBaseId: string, documentId: string): Promise<Document> => {
     const response = await api.post(`/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/retry`);
+    return response.data;
+  }
+};
+
+// Question API
+export const questionApi = {
+  create: async (knowledgeBaseId: string, question: string, answer: string, answerType: 'DIRECT' | 'SQL_QUERY'): Promise<Question> => {
+    const response = await api.post(`/knowledge-bases/${knowledgeBaseId}/questions`, { 
+      question, 
+      answer, 
+      answer_type: answerType 
+    });
+    return response.data;
+  },
+  
+  list: async (knowledgeBaseId: string): Promise<Question[]> => {
+    const response = await api.get(`/knowledge-bases/${knowledgeBaseId}/questions`);
+    return response.data;
+  },
+  
+  get: async (knowledgeBaseId: string, questionId: string): Promise<Question> => {
+    const response = await api.get(`/knowledge-bases/${knowledgeBaseId}/questions/${questionId}`);
+    return response.data;
+  },
+  
+  update: async (knowledgeBaseId: string, questionId: string, question: string, answer: string, answerType: 'DIRECT' | 'SQL_QUERY'): Promise<Question> => {
+    const response = await api.put(`/knowledge-bases/${knowledgeBaseId}/questions/${questionId}`, { 
+      question, 
+      answer, 
+      answer_type: answerType 
+    });
+    return response.data;
+  },
+  
+  delete: async (knowledgeBaseId: string, questionId: string): Promise<{ message: string }> => {
+    const response = await api.delete(`/knowledge-bases/${knowledgeBaseId}/questions/${questionId}`);
+    return response.data;
+  },
+  
+  retry: async (knowledgeBaseId: string, questionId: string): Promise<Question> => {
+    const response = await api.post(`/knowledge-bases/${knowledgeBaseId}/questions/${questionId}/retry`);
     return response.data;
   }
 };
