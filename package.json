@@ -10,15 +10,20 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@headlessui/react": "^2.2.0",
+    "@heroicons/react": "^2.2.0",
     "@types/node": "^22.13.5",
+    "@types/react-window": "^1.8.8",
     "axios": "^1.7.9",
     "framer-motion": "^12.4.7",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-hot-toast": "^2.5.2",
     "react-markdown": "^10.0.0",
     "react-router-dom": "^7.2.0",
-    "react-syntax-highlighter": "^15.6.1"
+    "react-syntax-highlighter": "^15.6.1",
+    "react-window": "^1.8.11"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",

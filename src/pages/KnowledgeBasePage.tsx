@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Navigate } from 'react-router-dom';
 import { Plus, FileText, Send, ArrowLeft, Sparkles, Pencil, User, Trash2, MessageSquare, LogOut, Loader2, RefreshCw, Check, Copy, ChevronDown, Clock, AlertCircle, CheckCircle, Share2, HelpCircle, Code } from 'lucide-react';
 import { knowledgeBaseApi, documentApi, conversationApi, messageApi, questionApi } from '../services/api';
@@ -8,6 +8,10 @@ import { CreateQuestionModal } from '../components/CreateQuestionModal';
 import { useAuth } from '../contexts/AuthContext';
 import PermissionGated from '../components/PermissionGated';
 import { useUser } from '../contexts/UserContext';
+import BulkQuestionUploadModal from '../components/BulkQuestionUploadModal';
+import { toast } from 'react-hot-toast';
+import { FixedSizeList as List } from 'react-window';
+import { memo } from 'react';
 
 // Temporary inline component until the actual component is created
 function EmptySourcesState({ onUpload }: { onUpload: () => void }) {
@@ -350,8 +354,23 @@ interface KnowledgeBasePageProps {
   documentsView?: boolean;
 }
 
+// Memoize the ChatMessage component to prevent unnecessary re-renders
+const MemoizedChatMessage = memo(({ message }: { message: Message }) => {
+  return <ChatMessage message={message} />;
+});
+
+// Row renderer for virtualized list
+const Row = memo(({ index, style, data }: { index: number; style: React.CSSProperties; data: Message[] }) => {
+  const message = data[index];
+  return (
+    <div style={style} className="py-2">
+      <MemoizedChatMessage message={message} />
+    </div>
+  );
+});
+
 export default function KnowledgeBasePage({ isNew = false, documentsView = false }: KnowledgeBasePageProps) {
-  const { id } = useParams<{ id: string }>();
+  const { id: knowledgeBaseId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { logout } = useAuth();
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -365,7 +384,7 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   const [isEditing, setIsEditing] = useState(false);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [activeTab, setActiveTab] = useState<'documents' | 'questions' | 'chat'>('documents');
+  const [activeTab, setActiveTab] = useState<'documents' | 'questions'>('documents');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showQuestionModal, setShowQuestionModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -375,8 +394,14 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
+  const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
+  const [isUserActive, setIsUserActive] = useState(true);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastMessageTimestampRef = useRef<number>(Date.now());
   
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const { hasPermission } = useUser();
   
   // Check if any document is in processing state
   const pendingDocuments = documents.filter(doc => doc.status === 'PENDING').length;
@@ -398,17 +423,86 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
     return chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < threshold;
   }, []);
 
+  // Memoize sorted messages to prevent unnecessary re-sorting
+  const sortedMessages = useMemo(() => {
+    return [...messages].sort((a, b) => 
+      new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
+    );
+  }, [messages]);
+
+  // Track user activity
+  useEffect(() => {
+    const handleActivity = () => {
+      setIsUserActive(true);
+      lastMessageTimestampRef.current = Date.now();
+    };
+
+    // Set up event listeners for user activity
+    window.addEventListener('mousemove', handleActivity);
+    window.addEventListener('keydown', handleActivity);
+    window.addEventListener('click', handleActivity);
+    
+    // Set up inactivity timer
+    const inactivityTimer = setInterval(() => {
+      const now = Date.now();
+      const inactiveTime = now - lastMessageTimestampRef.current;
+      
+      // If user has been inactive for 2 minutes, reduce polling frequency
+      if (inactiveTime > 2 * 60 * 1000) {
+        setIsUserActive(false);
+      }
+    }, 60 * 1000);
+    
+    return () => {
+      window.removeEventListener('mousemove', handleActivity);
+      window.removeEventListener('keydown', handleActivity);
+      window.removeEventListener('click', handleActivity);
+      clearInterval(inactivityTimer);
+    };
+  }, []);
+
   const loadMessages = useCallback(async () => {
     if (!conversationId) return;
     try {
-      const messages = await messageApi.list(conversationId);
-      const sortedMessages = [...messages].sort((a, b) => 
-        new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
-      );
+      const messagesData = await messageApi.list(conversationId);
       
-      setMessages(sortedMessages);
+      // Use functional update to avoid race conditions
+      setMessages(prevMessages => {
+        // Compare message IDs to avoid unnecessary updates
+        if (messagesData.length === prevMessages.length && 
+            JSON.stringify(messagesData.map(m => m.id).sort()) === 
+            JSON.stringify(prevMessages.map(m => m.id).sort())) {
+          return prevMessages;
+        }
+        
+        // Only update status for existing messages and add new ones
+        const updatedMessages = [...prevMessages];
+        const prevMessageMap = new Map(prevMessages.map(m => [m.id, m]));
+        
+        for (const message of messagesData) {
+          const existingMessage = prevMessageMap.get(message.id);
+          if (existingMessage) {
+            // Only update if status or content changed
+            if (existingMessage.status !== message.status || 
+                existingMessage.content !== message.content) {
+              const index = updatedMessages.findIndex(m => m.id === message.id);
+              if (index !== -1) {
+                updatedMessages[index] = message;
+              }
+            }
+          } else {
+            // Add new message
+            updatedMessages.push(message);
+          }
+        }
+        
+        // Sort messages
+        return updatedMessages.sort((a, b) => 
+          new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
+        );
+      });
       
-      const waitingForResponse = sortedMessages.some(msg => 
+      const waitingForResponse = messagesData.some(msg => 
         msg.kind === 'ASSISTANT' && msg.status === 'PROCESSING'
       );
       setIsWaitingForResponse(waitingForResponse);
@@ -423,6 +517,7 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
     }
   }, [conversationId, isNearBottom]);
 
+  // Restore the handleCreateNew function
   const handleCreateNew = useCallback(async () => {
     try {
       const newKb = await knowledgeBaseApi.create('Untitled knowledge base', 'New knowledge base');
@@ -433,19 +528,20 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
     }
   }, [navigate]);
 
+  // Restore the loadKnowledgeBase function
   const loadKnowledgeBase = useCallback(async () => {
-    if (!id) return;
+    if (!knowledgeBaseId) return;
     try {
-      const data = await knowledgeBaseApi.get(id);
+      const data = await knowledgeBaseApi.get(knowledgeBaseId);
       setTitle(data.name);
 
       const conversations = await conversationApi.list();
-      const existingConversation = conversations.find((conv: Conversation) => conv.knowledge_base_id === id);
+      const existingConversation = conversations.find((conv: Conversation) => conv.knowledge_base_id === knowledgeBaseId);
       
       if (existingConversation) {
         setConversationId(existingConversation.id);
       } else {
-        const newConversation = await conversationApi.create(data.name, id);
+        const newConversation = await conversationApi.create(data.name, knowledgeBaseId);
         setConversationId(newConversation.id);
       }
       
@@ -454,57 +550,82 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
       console.error('Failed to load knowledge base:', error);
       navigate('/');
     }
-  }, [id, navigate, setConversationId, setTitle, setLoading]);
+  }, [knowledgeBaseId, navigate, setConversationId, setTitle, setLoading]);
 
+  // Restore the loadDocuments function with memoization
   const loadDocuments = useCallback(async () => {
-    if (!id) return;
+    if (!knowledgeBaseId) return;
     try {
-      const docs = await documentApi.list(id);
-      setDocuments(docs);
+      const docs = await documentApi.list(knowledgeBaseId);
+      setDocuments(prevDocs => {
+        // Only update if there are actual changes
+        if (JSON.stringify(docs.map(d => d.id)) === JSON.stringify(prevDocs.map(d => d.id))) {
+          return prevDocs;
+        }
+        return docs;
+      });
     } catch (error) {
       console.error('Failed to load documents:', error);
     }
-  }, [id, setDocuments]);
+  }, [knowledgeBaseId]);
 
+  // Restore the loadQuestions function with memoization
   const loadQuestions = useCallback(async () => {
-    if (!id) return;
+    if (!knowledgeBaseId) return;
     try {
-      const questionsList = await questionApi.list(id);
-      setQuestions(questionsList);
+      const questionsList = await questionApi.list(knowledgeBaseId);
+      setQuestions(prevQuestions => {
+        // Only update if there are actual changes
+        if (JSON.stringify(questionsList.map(q => q.id)) === JSON.stringify(prevQuestions.map(q => q.id))) {
+          return prevQuestions;
+        }
+        return questionsList;
+      });
     } catch (error) {
       console.error('Failed to load questions:', error);
     }
-  }, [id]);
-  
-  useEffect(() => {
-    if (!isNew) {
-      loadKnowledgeBase();
-      loadDocuments();
-      loadQuestions();
-    } else if (isNew) {
-      handleCreateNew();
-    }
-  }, [id, isNew, loadKnowledgeBase, loadDocuments, loadQuestions, handleCreateNew]);
+  }, [knowledgeBaseId]);
 
+  // Restore the initial loading effect
   useEffect(() => {
-    if (conversationId) {
+    const loadData = async () => {
+      if (!isNew) {
+        await loadKnowledgeBase();
+        await loadDocuments();
+        await loadQuestions();
+      } else if (isNew) {
+        await handleCreateNew();
+      }
+    };
+    
+    loadData();
+  }, [knowledgeBaseId, isNew, loadKnowledgeBase, loadDocuments, loadQuestions, handleCreateNew]);
+
+  // Optimized message polling with adaptive frequency
+  useEffect(() => {
+    if (!conversationId) return;
+    
+    const pollMessages = () => {
       loadMessages();
-
-      pollIntervalRef.current = setInterval(() => {
-        if (isNearBottom()) {
-          loadMessages();
-        } else {
-          setShowGetLatestButton(true);
-        }
-      }, 5000);
-
-      return () => {
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-        }
-      };
-    }
-  }, [conversationId, loadMessages, isNearBottom]);
+      
+      // Adjust polling frequency based on user activity and waiting state
+      const pollInterval = isWaitingForResponse 
+        ? 2000 
+        : isUserActive 
+          ? 5000 
+          : 15000;
+      
+      timeoutRef.current = setTimeout(pollMessages, pollInterval);
+    };
+    
+    pollMessages();
+    
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, [conversationId, loadMessages, isWaitingForResponse, isUserActive]);
 
   useEffect(() => {
     if (shouldAutoScroll && messages.length > 0) {
@@ -555,9 +676,9 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
 
   const handleTitleBlur = async () => {
     setIsEditing(false);
-    if (id) {
+    if (knowledgeBaseId) {
       try {
-        await knowledgeBaseApi.update(id, title);
+        await knowledgeBaseApi.update(knowledgeBaseId, title);
       } catch (error) {
         console.error('Failed to update knowledge base:', error);
       }
@@ -565,9 +686,9 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   };
 
   const handleUploadDocument = async (file: File) => {
-    if (!id) return;
+    if (!knowledgeBaseId) return;
     try {
-      const newDoc = await documentApi.upload(id, file);
+      const newDoc = await documentApi.upload(knowledgeBaseId, file);
       setDocuments(prev => [...prev, newDoc]);
       setShowUploadModal(false);
       
@@ -578,11 +699,11 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   };
 
   const handleDeleteDocument = async (documentId: string) => {
-    if (!id) return;
-    console.log(`Attempting to delete document ${documentId} from knowledge base ${id}`);
+    if (!knowledgeBaseId) return;
+    console.log(`Attempting to delete document ${documentId} from knowledge base ${knowledgeBaseId}`);
     try {
       console.log('Making API call to delete document...');
-      await documentApi.delete(id, documentId);
+      await documentApi.delete(knowledgeBaseId, documentId);
       console.log('Document deleted successfully, updating UI');
       setDocuments(prev => prev.filter(doc => doc.id !== documentId));
       setShowDeleteConfirm(null);
@@ -592,26 +713,36 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   };
 
   const handleSendMessage = async () => {
-    if (!message.trim() || !id || isWaitingForResponse) return;
+    if (!message.trim() || !knowledgeBaseId || isWaitingForResponse) return;
 
     try {
       setIsWaitingForResponse(true);
+      lastMessageTimestampRef.current = Date.now();
+      setIsUserActive(true);
       
       if (!conversationId) {
-        const conversation = await conversationApi.create(title, id);
+        const conversation = await conversationApi.create(title, knowledgeBaseId);
         setConversationId(conversation.id);
       }
 
       if (conversationId) {
         const newMessage = await messageApi.create(conversationId, message);
+        
+        // Use functional update to ensure state consistency
         setMessages(prev => {
-          const updatedMessages = [...prev, newMessage];
+          const updatedMessages = [...prev];
+          const messageExists = updatedMessages.some(m => m.id === newMessage.id);
+          
+          if (!messageExists) {
+            updatedMessages.push(newMessage);
+          }
+          
           return updatedMessages.sort((a, b) => 
             new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
           );
         });
-        setMessage('');
         
+        setMessage('');
         setTimeout(scrollToBottom, 100);
       }
     } catch (error) {
@@ -628,9 +759,9 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   };
 
   const handleRetryDocument = async (documentId: string) => {
-    if (!id) return;
+    if (!knowledgeBaseId) return;
     try {
-      const retryDoc = await documentApi.retry(id, documentId);
+      const retryDoc = await documentApi.retry(knowledgeBaseId, documentId);
       setDocuments(prev => prev.map(doc => doc.id === documentId ? retryDoc : doc));
       
       pollForDocumentStatus(documentId);
@@ -642,8 +773,8 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   const pollForDocumentStatus = async (documentId: string) => {
     const pollInterval = setInterval(async () => {
       try {
-        if (!id) return;
-        const doc = await documentApi.get(id, documentId);
+        if (!knowledgeBaseId) return;
+        const doc = await documentApi.get(knowledgeBaseId, documentId);
         setDocuments(prev => prev.map(d => d.id === documentId ? doc : d));
         
         if (doc.status !== 'PENDING' && doc.status !== 'PROCESSING') {
@@ -657,9 +788,9 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   };
 
   const handleCreateQuestion = async (question: string, answer: string, answerType: 'DIRECT' | 'SQL_QUERY') => {
-    if (!id) return;
+    if (!knowledgeBaseId) return;
     try {
-      const newQuestion = await questionApi.create(id, question, answer, answerType);
+      const newQuestion = await questionApi.create(knowledgeBaseId, question, answer, answerType);
       setQuestions(prev => [...prev, newQuestion]);
       setShowQuestionModal(false);
       
@@ -670,9 +801,9 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   };
 
   const handleDeleteQuestion = async (questionId: string) => {
-    if (!id) return;
+    if (!knowledgeBaseId) return;
     try {
-      await questionApi.delete(id, questionId);
+      await questionApi.delete(knowledgeBaseId, questionId);
       setQuestions(prev => prev.filter(q => q.id !== questionId));
       setShowDeleteQuestionConfirm(null);
     } catch (error) {
@@ -681,9 +812,9 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   };
 
   const handleRetryQuestion = async (questionId: string) => {
-    if (!id) return;
+    if (!knowledgeBaseId) return;
     try {
-      const retryQuestion = await questionApi.retry(id, questionId);
+      const retryQuestion = await questionApi.retry(knowledgeBaseId, questionId);
       setQuestions(prev => prev.map(q => q.id === questionId ? retryQuestion : q));
       
       pollForQuestionStatus(questionId);
@@ -695,8 +826,8 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
   const pollForQuestionStatus = async (questionId: string) => {
     const pollInterval = setInterval(async () => {
       try {
-        if (!id) return;
-        const question = await questionApi.get(id, questionId);
+        if (!knowledgeBaseId) return;
+        const question = await questionApi.get(knowledgeBaseId, questionId);
         setQuestions(prev => prev.map(q => q.id === questionId ? question : q));
         
         if (question.status !== 'PENDING' && question.status !== 'PROCESSING') {
@@ -717,12 +848,27 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
       setMessages([]);
       setConversationId(null);
       
-      if (id) {
-        const newConversation = await conversationApi.create(title, id);
+      if (knowledgeBaseId) {
+        const newConversation = await conversationApi.create(title, knowledgeBaseId);
         setConversationId(newConversation.id);
       }
     } catch (error) {
       console.error('Failed to delete conversation:', error);
+    }
+  };
+
+  const handleBulkUploadComplete = () => {
+    fetchQuestions();
+  };
+
+  const fetchQuestions = async () => {
+    if (!knowledgeBaseId) return;
+    try {
+      const response = await questionApi.list(knowledgeBaseId);
+      setQuestions(response);
+    } catch (error) {
+      console.error('Error fetching questions:', error);
+      toast.error('Failed to fetch questions');
     }
   };
 
@@ -830,16 +976,6 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
                   }`}
                 >
                   Questions
-                </button>
-                <button
-                  onClick={() => setActiveTab('chat')}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                    activeTab === 'chat' 
-                      ? 'bg-indigo-100 text-indigo-700' 
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  Chat
                 </button>
               </div>
             </div>
@@ -975,20 +1111,34 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
 
             {activeTab === 'questions' && (
               <div className="p-4 flex-1 overflow-y-auto">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-base font-semibold text-gray-900">Questions</h2>
+                  <div className="flex space-x-2">
+                    {hasPermission('CREATE_QUESTION') && (
+                      <>
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md shadow-sm hover:bg-indigo-500"
+                          onClick={() => setShowQuestionModal(true)}
+                        >
+                          Add Question
+                        </button>
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 bg-white text-gray-700 text-sm font-medium rounded-md border border-gray-300 shadow-sm hover:bg-gray-50"
+                          onClick={() => setIsBulkUploadModalOpen(true)}
+                        >
+                          Bulk Upload
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                
                 {questions.length === 0 ? (
                   <EmptyQuestionsState onAddQuestion={() => setShowQuestionModal(true)} />
                 ) : (
                   <>
-                    <PermissionGated permission="CREATE_QUESTION">
-                      <button 
-                        onClick={() => setShowQuestionModal(true)}
-                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-dashed border-purple-200 text-purple-600 p-4 rounded-xl hover:shadow-lg hover:shadow-purple-500/10 transition-all duration-200 mb-4 font-medium"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Add question
-                      </button>
-                    </PermissionGated>
-
                     {questions.map(question => (
                       <div key={question.id} className="group relative flex flex-col p-4 mb-3 hover:bg-gradient-to-r hover:from-purple-50 hover:to-pink-50 rounded-xl cursor-pointer transition-all duration-200 border border-gray-100">
                         <div className="flex items-start justify-between mb-2">
@@ -1089,27 +1239,11 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
                 )}
               </div>
             )}
-
-            {activeTab === 'chat' && (
-              <div className="p-4 flex-1 overflow-y-auto">
-                <div className="flex flex-col items-center justify-center h-full text-center">
-                  <div className="w-16 h-16 mb-6 bg-gradient-to-br from-indigo-500 to-blue-500 p-4 rounded-2xl shadow-lg shadow-indigo-500/20">
-                    <MessageSquare className="w-full h-full text-white" />
-                  </div>
-                  <h3 className="text-xl font-bold mb-2 bg-gradient-to-r from-indigo-600 via-blue-600 to-purple-600 text-transparent bg-clip-text">
-                    Chat on mobile
-                  </h3>
-                  <p className="text-gray-500 max-w-sm">
-                    Use the main chat interface on the right side to interact with your knowledge base.
-                  </p>
-                </div>
-              </div>
-            )}
           </div>
         </PermissionGated>
 
         <div className="flex-1 flex flex-col h-[calc(100vh-4rem)] bg-white/70 backdrop-blur-lg">
-          {isNew || documents.length === 0 ? (
+          {knowledgeBaseId === undefined || documents.length === 0 ? (
             <EmptyChatState onUpload={() => setShowUploadModal(true)} />
           ) : (
             <>
@@ -1120,7 +1254,7 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
                 id="chat-messages"
               >
                 <div className="max-w-3xl mx-auto space-y-4">
-                  {messages.length === 0 ? (
+                  {sortedMessages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center py-12">
                       <div className="w-16 h-16 mb-6 bg-gradient-to-br from-blue-500 to-indigo-500 p-4 rounded-2xl shadow-lg shadow-blue-500/20">
                         <MessageSquare className="w-full h-full text-white" />
@@ -1133,9 +1267,19 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
                       </p>
                     </div>
                   ) : (
-                    messages.map(msg => (
-                      <ChatMessage key={msg.id} message={msg} />
-                    ))
+                    <div style={{ height: chatContainerRef.current ? chatContainerRef.current.clientHeight - 100 : 500 }}>
+                      <List
+                        height={chatContainerRef.current ? chatContainerRef.current.clientHeight - 100 : 500}
+                        itemCount={sortedMessages.length}
+                        itemSize={150} // Average height, will adjust dynamically
+                        width="100%"
+                        itemData={sortedMessages}
+                        overscanCount={5}
+                        className="scrollbar-hide"
+                      >
+                        {Row}
+                      </List>
+                    </div>
                   )}
                 </div>
                 
@@ -1228,14 +1372,23 @@ export default function KnowledgeBasePage({ isNew = false, documentsView = false
         </PermissionGated>
         
         <PermissionGated permission="SHARE_KNOWLEDGE_BASE">
-          {id && id.trim() !== '' && (
+          {knowledgeBaseId && knowledgeBaseId.trim() !== '' && (
             <ShareKnowledgeBaseModal 
               isOpen={showShareModal} 
               onClose={() => setShowShareModal(false)} 
-              knowledgeBaseId={id} 
+              knowledgeBaseId={knowledgeBaseId} 
             />
           )}
         </PermissionGated>
+
+        {knowledgeBaseId && (
+          <BulkQuestionUploadModal
+            isOpen={isBulkUploadModalOpen}
+            onClose={() => setIsBulkUploadModalOpen(false)}
+            knowledgeBaseId={knowledgeBaseId}
+            onUploadComplete={handleBulkUploadComplete}
+          />
+        )}
       </div>
     </div>
   );

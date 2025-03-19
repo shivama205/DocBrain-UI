@@ -1,6 +1,6 @@
 import { Sparkles, User, Copy, Check, MessageSquare, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { useState, memo, useCallback } from 'react';
 import ReactMarkdown, { Components } from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -58,12 +58,13 @@ const sourceVariants = {
   }
 };
 
-export function ChatMessage({ message }: ChatMessageProps) {
+// Memoize the actual component to prevent unnecessary rerenders
+function ChatMessageComponent({ message }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const [showSources, setShowSources] = useState(false);
 
   // Format the timestamp nicely
-  const formatTimestamp = (timestamp: string) => {
+  const formatTimestamp = useCallback((timestamp: string) => {
     const date = new Date(timestamp);
     return date.toLocaleString([], {
       hour: 'numeric',
@@ -71,7 +72,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
       month: 'short',
       day: 'numeric'
     });
-  };
+  }, []);
 
   // Don't render incomplete assistant messages
   if (message.type === 'assistant' && message.status !== 'processed') {
@@ -92,11 +93,11 @@ export function ChatMessage({ message }: ChatMessageProps) {
     );
   }
 
-  const handleCopy = () => {
+  const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(message.content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
+  }, [message.content]);
 
   // Define markdown components
   const markdownComponents: Components = {
@@ -243,4 +244,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
       )}
     </motion.div>
   );
-} 
+}
+
+// Use React.memo to prevent re-renders when props haven't changed
+export const ChatMessage = memo(ChatMessageComponent); 

@@ -380,6 +380,19 @@ export const questionApi = {
   retry: async (knowledgeBaseId: string, questionId: string): Promise<Question> => {
     const response = await api.post(`/knowledge-bases/${knowledgeBaseId}/questions/${questionId}/retry`);
     return response.data;
+  },
+  
+  bulkUpload: async (knowledgeBaseId: string, file: File): Promise<{success: number, failed: number, errors: string[]}> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await api.post(`/knowledge-bases/${knowledgeBaseId}/questions/bulk-upload`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    
+    return response.data;
   }
 };
 
