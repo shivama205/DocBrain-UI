@@ -50,3 +50,8 @@ build
 .stylelintcache
 .vercel
 .netlify
+
+# markdown files
+*.md
+*.mdx
+*.mdx

@@ -1,6 +1,34 @@
 # DocBrain UI - Release Notes
 
-## v1.2.0 (Current)
+## v1.3.0 (Current)
+
+### New Features
+- **Advanced Question Handling & Query Routing**: Enhanced capabilities for more intelligent interaction
+  - Added intelligent question classification system for optimal response generation
+  - Implemented automatic query routing between different data sources
+  - Added confidence scoring for routing decisions with fallback mechanisms
+  - Integrated support for different types of queries with specialized processing
+
+- **Improved Query Processing**: Better understanding and handling of user questions
+  - Enhanced natural language processing for more accurate question interpretation
+  - Added support for complex, multi-part questions
+  - Implemented context-aware question handling that maintains conversation history
+  - Optimized response generation for different question types
+
+### Improvements
+- **Enhanced Response Quality**: Better answers with more relevant information
+  - Improved source document retrieval for more accurate responses
+  - Enhanced context window optimization for better understanding of documents
+  - Added better handling of ambiguous queries with clarification prompts
+  - Implemented improved answer formatting for better readability
+
+- **UI Enhancements**: Better user experience for question answering
+  - Added visual indicators for query routing and processing
+  - Improved chat interface to show question type and confidence
+  - Enhanced source attribution display for better transparency
+  - Added support for query refinement suggestions
+
+## v1.2.0
 
 ### New Features
 - **Knowledge Base Sharing**: Share your knowledge bases with other users

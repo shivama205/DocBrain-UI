@@ -35,6 +35,8 @@ DocBrain UI is a powerful frontend application for managing and interacting with
 - **📄 Document Management**: Upload, process, and organize documents within knowledge bases
 - **👥 Role-Based Access Control**: Manage user permissions with Owner, Admin, and User roles
 - **🔄 Knowledge Base Sharing**: Easily share knowledge bases with other users in your organization
+- **🧠 Intelligent Query Routing**: Automatic routing of questions to the appropriate data source
+- **❓ Advanced Question Handling**: Support for complex questions with optimized processing
 - **💬 Conversational Interface**: Chat with your documents using a natural language interface
 - **🔍 Source Attribution**: View the exact sources used to generate responses
 - **📱 Responsive Design**: Works seamlessly on desktop and mobile devices
@@ -127,6 +129,13 @@ DocBrain UI implements a comprehensive role-based access control system:
 3. View the AI-generated response along with source attributions
 4. Continue the conversation with follow-up questions
 
+### Advanced Question Features
+
+1. Ask complex, multi-part questions for comprehensive answers
+2. System automatically routes queries to the appropriate data source
+3. View confidence scores and query classification for transparency
+4. Receive query refinement suggestions for better results
+
 ## 📚 API Documentation
 
 The DocBrain UI interacts with the [DocBrain API](https://github.com/shivama205/DocBrain). For detailed API documentation, see [api.md](api.md).
@@ -149,9 +158,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📦 Current Version
 
-**Current Version: v1.2.0**
+**Current Version: v1.3.0**
 
-Latest release includes Knowledge Base Sharing, Role-Based Access Control, and User Management features.
+Latest release includes Advanced Question Handling, Query Routing, Improved Response Quality, and UI Enhancements.
 
 For detailed release notes, see [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
